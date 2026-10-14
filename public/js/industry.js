@@ -3,6 +3,7 @@ import { state, update, updateQuiet, market, esc, uid, fmtPct, fmtNum, fmtCap, c
 import { renderLine, color } from './charts.js';
 import { periodReturns } from './analytics.js';
 import { openStockModal } from './stock.js';
+import { renderValueChain, mapTickers, parseMap, EXAMPLE } from './valuechain.js';
 
 let current = null;
 let sortKey = 'mc', sortDir = -1;
@@ -20,23 +21,54 @@ const COLS = [
   ['revG', '매출성장'], ['om', '영업이익률'], ['roe', 'ROE'], ['upside', '목표가 괴리'], ['nextEarn', '다음 실적'],
 ];
 
+let sub = 'map'; // map: 밸류체인 지도 · compare: 기업 비교·메모
+const allTickers = (ind) => [...new Set([...(ind.tickers || []), ...mapTickers(ind.maps)])];
+
 export async function render(root) {
   const list = I().list;
   if (!current || !list.some((x) => x.id === current)) current = list[0]?.id || null;
   root.innerHTML = `
   <div class="toolbar">
-    <span class="small muted">관심 산업을 만들고 대표 기업을 넣으면 밸류에이션·성장성·수익률을 한눈에 비교합니다.</span>
+    ${list.length ? `<div class="seg" style="flex-wrap:wrap">${list.map((x) => `<button data-id="${x.id}" draggable="true" class="${x.id === current ? 'on' : ''}" title="끌어서 순서 변경">⠿ ${esc(x.name)}</button>`).join('')}</div>` : ''}
     <span style="flex:1"></span>
     <button class="btn" data-act="import">섹터에서 가져오기</button>
     <button class="btn btn-primary" data-act="add">+ 산업 추가</button>
   </div>
-  ${list.length ? `<div class="ind-cards">${list.map((x) => `<div class="ind-card ${x.id === current ? 'on' : ''}" data-id="${x.id}"><b>${esc(x.name)}</b><div class="small muted">${x.tickers.length}개 기업 · ${esc(x.tickers.slice(0, 4).join(', '))}${x.tickers.length > 4 ? '…' : ''}</div></div>`).join('')}</div>`
-    : '<div class="card"><div class="empty">아직 만든 산업이 없습니다.<br>“+ 산업 추가”로 직접 만들거나, “섹터에서 가져오기”로 섹터 퍼포먼스의 묶음을 불러오세요.</div></div>'}
+  ${list.length ? '' : '<div class="card"><div class="empty">아직 만든 산업이 없습니다.<br>“+ 산업 추가”로 만들면 밸류체인 지도와 기업 비교표를 함께 정리할 수 있습니다.</div></div>'}
+  ${current ? `<div class="toolbar"><div class="seg"><button data-sub="map" class="${sub === 'map' ? 'on' : ''}">밸류체인 지도</button><button data-sub="compare" class="${sub === 'compare' ? 'on' : ''}">기업 비교 · 메모</button></div>
+    <button class="btn btn-sm" data-act="edit">산업 이름·기업 편집</button></div>` : ''}
   <div data-body></div>`;
   root.querySelector('[data-act=add]').onclick = () => industryModal(null, root);
   root.querySelector('[data-act=import]').onclick = () => importModal(root);
-  root.querySelectorAll('[data-id]').forEach((c) => { c.onclick = () => { current = c.dataset.id; render(root); }; });
-  if (current) drawIndustry(root.querySelector('[data-body]'), list.find((x) => x.id === current), root);
+  root.querySelector('[data-act=edit]')?.addEventListener('click', () => industryModal(list.find((x) => x.id === current), root));
+  root.querySelectorAll('[data-sub]').forEach((b) => { b.onclick = () => { sub = b.dataset.sub; render(root); }; });
+  let drag = null;
+  root.querySelectorAll('[data-id]').forEach((c) => {
+    c.onclick = () => { current = c.dataset.id; render(root); };
+    c.addEventListener('dragstart', () => { drag = c.dataset.id; });
+    c.addEventListener('dragover', (e) => { if (drag) e.preventDefault(); });
+    c.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const to = c.dataset.id;
+      if (!drag || drag === to) return;
+      update('industries', (s) => { const i = s.list.findIndex((x) => x.id === drag); const [x] = s.list.splice(i, 1); s.list.splice(s.list.findIndex((y) => y.id === to), 0, x); }, '산업 순서 변경');
+      drag = null; render(root);
+    });
+  });
+  if (!current) return;
+  const ind = list.find((x) => x.id === current);
+  const body = root.querySelector('[data-body]');
+  if (sub === 'map') {
+    body.className = 'card';
+    renderValueChain(body, JSON.parse(JSON.stringify(ind.maps || [])), {
+      onSave(maps, quiet) {
+        (quiet ? updateQuiet : update)('industries', (s) => { const x = s.list.find((y) => y.id === ind.id); if (x) x.maps = maps; }, '밸류체인 지도 수정');
+        if (!quiet) render(root);
+      },
+    });
+  } else {
+    drawIndustry(body, { ...ind, tickers: allTickers(ind) }, root);
+  }
 }
 
 async function drawIndustry(el, ind, root) {
@@ -104,7 +136,7 @@ async function drawIndustry(el, ind, root) {
     th.onclick = () => { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : (k === 's' || k === 'nextEarn' ? 1 : -1); sortKey = k; drawIndustry(el, ind, root); };
   });
   el.querySelectorAll('[data-open]').forEach((tr) => { tr.onclick = () => openStockModal(tr.dataset.open); });
-  el.querySelector('[data-act=edit]').onclick = () => industryModal(ind, root);
+  el.querySelector('[data-act=edit]').onclick = () => industryModal(I().list.find((x) => x.id === ind.id), root);
   el.querySelector('[data-act=csv]').onclick = () => download(`산업분석-${ind.name}-${today()}.csv`, toCsv([COLS.map((c) => c[1]),
     ...sorted.map((r) => [r.s, r.mc, r.m1?.toFixed(2), r.m3?.toFixed(2), r.ytd?.toFixed(2), r.pe?.toFixed(2), r.fpe?.toFixed(2), r.ps?.toFixed(2), r.revG, r.om, r.roe, r.upside?.toFixed(2), r.nextEarn])]), 'text/csv');
 
@@ -141,7 +173,9 @@ function industryModal(ind, root) {
   openModal({
     title: isEdit ? '산업 편집' : '산업 추가',
     body: `<label class="field">산업 이름<input name="name" value="${esc(ind?.name || '')}" required placeholder="예: AI 반도체, 비만 치료제"></label>
-      <label class="field">기업 (티커, 쉼표·공백 구분 · 최대 30개)<textarea name="tickers" rows="4" placeholder="예: NVDA, AMD, AVGO, 000660.KS">${esc(ind?.tickers.join(', ') || '')}</textarea></label>`,
+      <label class="field">비교표에 넣을 기업 (선택 · 티커, 쉼표·공백 구분 · 최대 30개)<textarea name="tickers" rows="3" placeholder="예: NVDA, AMD, AVGO, 000660.KS">${esc(ind?.tickers.join(', ') || '')}</textarea></label>
+      <p class="small muted">밸류체인 지도에 넣은 티커는 비교표에 자동으로 포함됩니다.</p>
+      ${isEdit ? '' : '<label class="toolbar small"><input type="checkbox" name="example"> AI 데이터센터 예시 지도로 시작</label>'}`,
     extraButtons: isEdit ? '<button type="button" class="btn btn-danger" data-del>산업 삭제</button>' : '',
     onOpen(form, close) {
       form.querySelector('[data-del]')?.addEventListener('click', async () => {
@@ -151,17 +185,18 @@ function industryModal(ind, root) {
         render(root);
       });
     },
-    onSubmit(d) {
+    onSubmit(d, form) {
       const name = d.name.trim();
       const tickers = [...new Set(d.tickers.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter(Boolean))];
       if (!name) throw new Error('이름을 입력하세요.');
-      if (!tickers.length) throw new Error('기업을 1개 이상 입력하세요.');
       if (tickers.length > 30) throw new Error('산업당 30개 기업까지 가능합니다.');
       const id = ind?.id || uid();
+      const maps = !isEdit && form.example?.checked ? [parseMap(EXAMPLE)] : [];
       update('industries', (s) => {
         if (isEdit) s.list = s.list.map((x) => (x.id === id ? { ...x, name, tickers } : x));
-        else s.list.push({ id, name, tickers, memo: '' });
+        else s.list.push({ id, name, tickers, memo: '', maps });
       }, isEdit ? '산업 편집' : '산업 추가');
+      sub = 'map';
       current = id;
       render(root);
     },

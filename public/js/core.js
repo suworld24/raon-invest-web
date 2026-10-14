@@ -87,11 +87,13 @@ const DEFAULT_SECTORS = [
   ['크립토', ['COIN', 'MSTR', 'HOOD', 'MARA', 'RIOT', 'CLSK']],
   ['전기차·자율주행', ['TSLA', 'RIVN', 'LCID', 'UBER', 'MBLY', 'XPEV', 'NIO']],
   ['양자컴퓨팅', ['IONQ', 'RGTI', 'QBTS', 'QUBT', 'IBM', 'HON']],
+  ['농업', ['DE', 'CF', 'MOS', 'NTR', 'ADM', 'BG', 'CTVA', 'FMC', 'AGCO', 'TSN']],
+  ['소재·광물', ['FCX', 'SCCO', 'MP', 'ALB', 'NEM', 'AA', 'RIO', 'VALE']],
 ];
 
 export function defaultState() {
   return {
-    portfolio: { accounts: [{ id: 'main', name: '내 포트폴리오', currency: 'KRW' }], trades: [], flows: [], selected: ['main'] },
+    portfolio: { accounts: [{ id: 'main', name: '내 포트폴리오', currency: 'KRW' }], trades: [], flows: [], positions: [], selected: ['main'] },
     watch: {
       groups: [
         { id: 'fav', name: '관심', symbols: [] },

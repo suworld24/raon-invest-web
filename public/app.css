@@ -234,6 +234,25 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .wgroup-head.on .gname { color: var(--primary); }
 .rank-matrix td, .rank-matrix th { padding: 6px 8px; }
 .rank-matrix td:first-child, .rank-matrix th:first-child { position: sticky; left: 0; background: var(--panel-2); z-index: 1; }
+/* 밸류체인 지도 */
+.vc-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); padding: 12px; max-height: 75vh; }
+.vc-sizer { overflow: hidden; }
+.vc { position: relative; display: grid; gap: 28px; transform-origin: top left; min-width: max-content; }
+.vc-col { display: flex; flex-direction: column; gap: 14px; position: relative; z-index: 1; }
+.vc-stage { font-size: 12px; color: var(--muted); padding: 4px 2px 2px; border-bottom: 2px solid var(--border); }
+.vc-stage b { color: var(--primary); margin-right: 4px; }
+.vc-node { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); min-width: 160px; }
+.vc-node h4 { margin: 0 0 2px; font-size: 13px; }
+.vc-node h4 a { color: var(--primary); text-decoration: none; }
+.vc-node .sub { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.vc-node.dim { opacity: .25; }
+.vc-node.sel { outline: 2px solid var(--primary); }
+.vc-co { font-size: 12px; padding: 2px 0; }
+.vc-co a { color: var(--text); text-decoration: none; }
+.vc-co a:hover { color: var(--primary); }
+.vc-co b { color: var(--primary); font-size: 11px; }
+.vc-co.hit { background: #ffd34d55; border-radius: 4px; }
+.vc-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 0; overflow: visible; }
 fieldset.card { margin: 0; }
 fieldset.card legend { padding: 0 6px; }
 details > summary { cursor: pointer; }

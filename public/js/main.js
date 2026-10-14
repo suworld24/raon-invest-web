@@ -1,14 +1,13 @@
-import { state, loadState, onChange, updateQuiet, undo, exportBackup, importBackup, market, api, esc, toast, watchAll, today, fmtPct, cls, openModal } from './core.js';
+import { state, loadState, onChange, updateQuiet, undo, exportBackup, importBackup, market, api, esc, toast, watchAll, openModal } from './core.js';
 import * as portfolio from './portfolio.js';
 import * as watchlist from './watchlist.js';
 import * as screener from './screener.js';
 import * as industry from './industry.js';
-import { computeBook } from './portfolio.js';
-import { alertHit, openStockModal } from './stock.js';
+import { showChanges } from './changes.js';
 import * as sectors from './sectors.js';
 import * as ranking from './ranking.js';
 import * as calendar from './calendar.js';
-import * as notes from './notes.js';
+import * as notes from './references.js';
 
 const ICON = {
   portfolio: '<path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -78,42 +77,6 @@ function setTheme(t) {
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem('kk.theme', t); } catch { /* 저장 불가 */ }
   document.querySelectorAll('#theme-seg button').forEach((b) => b.classList.toggle('on', b.dataset.theme === t));
-}
-
-// ---------- 주요 변화: 관심·보유 종목의 큰 움직임, 알림 도달, 다가오는 실적 ----------
-async function showChanges() {
-  const { form } = openModal({ title: '주요 변화', body: '<div class="changes" data-body><div class="empty">확인 중…</div></div>', wide: true });
-  const body = form.querySelector('[data-body]');
-  const held = computeBook(state.portfolio.accounts.map((a) => a.id)).positions.map((p) => p.symbol);
-  const syms = [...new Set([...watchAll(), ...held, ...Object.keys(state.watch.alerts || {})])];
-  if (!syms.length) { body.innerHTML = '<div class="empty">관심종목이나 보유 종목이 없습니다.</div>'; return; }
-  const t0 = today();
-  const t7 = new Date(Date.parse(t0) + 7 * 864e5).toISOString().slice(0, 10);
-  const months = [...new Set([t0.slice(0, 7), t7.slice(0, 7)])];
-  const [q, ...earn] = await Promise.all([
-    market.quotes(syms).catch(() => ({})),
-    ...months.map((m) => api(`/api/market/earnings?month=${m}`).catch(() => [])),
-  ]);
-  if (!body.isConnected) return;
-  const mine = new Set(syms);
-  const movers = syms.filter((s) => q[s]?.chg != null).sort((a, b) => Math.abs(q[b].chg) - Math.abs(q[a].chg));
-  const big = movers.filter((s) => Math.abs(q[s].chg) >= 3);
-  const hits = syms.map((s) => [s, alertHit(s, q[s]?.p)]).filter(([, h]) => h);
-  const upcoming = [
-    ...earn.flat().filter((e) => mine.has(e.s) && e.date >= t0 && e.date <= t7).map((e) => ({ date: e.date, s: e.s, text: `실적 발표${e.time === 'BMO' ? ' (장 전)' : e.time === 'AMC' ? ' (장 후)' : ''}` })),
-    ...state.calendar.events.filter((e) => e.date >= t0 && e.date <= t7).map((e) => ({ date: e.date, s: e.symbol, text: e.title || '내 일정' })),
-  ].sort((a, b) => (a.date < b.date ? -1 : 1));
-  const row = (s, extra = '') => `<li><a href="#" data-open="${esc(s)}"><b>${esc(s)}</b></a> <span class="muted small">${esc(q[s]?.name || '')}</span> <span class="${cls(q[s]?.chg)}">${fmtPct(q[s]?.chg)}</span> ${extra}</li>`;
-  body.innerHTML = `
-    <h3 style="margin:4px 0 6px">🔔 가격 알림 도달</h3>
-    ${hits.length ? `<ul>${hits.map(([s, h]) => row(s, `<span class="tag">${esc(h)}</span>`)).join('')}</ul>` : '<p class="muted small">도달한 알림이 없습니다.</p>'}
-    <h3 style="margin:14px 0 6px">오늘 크게 움직인 종목 (±3% 이상)</h3>
-    ${big.length ? `<ul>${big.map((s) => row(s, held.includes(s) ? '<span class="tag">보유</span>' : '')).join('')}</ul>` : '<p class="muted small">±3% 이상 움직인 종목이 없습니다.</p>'}
-    <h3 style="margin:14px 0 6px">앞으로 7일 일정</h3>
-    ${upcoming.length ? `<ul>${upcoming.map((u) => `<li><b>${esc(u.date.slice(5))}</b> ${u.s ? `<a href="#" data-open="${esc(u.s)}">${esc(u.s)}</a>` : ''} ${esc(u.text)}</li>`).join('')}</ul>` : '<p class="muted small">7일 안에 예정된 실적 발표나 일정이 없습니다.</p>'}
-    <h3 style="margin:14px 0 6px">관심·보유 종목 등락 순위</h3>
-    <ul>${movers.slice(0, 10).map((s) => row(s)).join('')}</ul>`;
-  body.querySelectorAll('[data-open]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); openStockModal(a.dataset.open); }; });
 }
 
 // ---------- 앱 설치 (PWA) ----------
