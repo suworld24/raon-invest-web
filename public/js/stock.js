@@ -134,7 +134,7 @@ export async function renderStock(el, sym, { onChange } = {}) {
 
   <h3 style="margin:16px 0 8px">내 메모</h3>
   <textarea data-memo rows="3" style="width:100%" placeholder="매수 이유, 체크 포인트 등을 적어두세요">${esc(memo)}</textarea>
-  <p class="small muted">자료: Yahoo Finance (지연 시세 · 재무는 최근 공시 기준)</p>`;
+  <p class="small muted">자료: 시세 Yahoo Finance · 재무·컨센서스 ${p?.source === 'nasdaq' ? 'Nasdaq (PER·PSR 등은 최근 4분기 재무제표로 계산)' : 'Yahoo Finance'} · 지연 시세</p>`;
 
   const draw = async () => {
     const box = el.querySelector('[data-chart]');
