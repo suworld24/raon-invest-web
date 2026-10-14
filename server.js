@@ -19,7 +19,7 @@ if (!SESSION_SECRET) {
 }
 
 // 사용자 기록 키 (이 외의 키는 저장하지 않음)
-const DOC_KEYS = new Set(['portfolio', 'watch', 'sectors', 'notes', 'calendar', 'screener', 'ranking', 'prefs']);
+const DOC_KEYS = new Set(['portfolio', 'watch', 'sectors', 'industries', 'notes', 'calendar', 'screener', 'ranking', 'prefs']);
 const SYMBOL_RE = /^[A-Za-z0-9.\-=^]{1,20}$/;
 
 const app = express();
@@ -48,7 +48,8 @@ app.get('/login', (req, res) => {
   res.sendFile(page('login.html'));
 });
 app.get('/healthz', (req, res) => res.json({ ok: true, store: store.kind }));
-app.use(express.static(publicDir, { index: false, maxAge: IS_PROD ? '1h' : 0 }));
+// 화면 파일은 매번 변경 여부를 확인(ETag) — 업데이트 직후 옛 파일과 새 파일이 섞이지 않도록
+app.use(express.static(publicDir, { index: false, maxAge: 0 }));
 
 // ---------- 로그인 ----------
 app.get('/auth/config', (req, res) => res.json({ google: !!(GOOGLE_ID && GOOGLE_SECRET), dev: DEV_LOGIN }));
@@ -156,6 +157,16 @@ api.get('/market/quotes', wrap(async (req, res) => {
 
 api.get('/market/history', wrap(async (req, res) => {
   res.json(await market.histories(parseSymbols(req.query.symbols), String(req.query.range || '1y')));
+}));
+
+api.get('/market/fundamentals', wrap(async (req, res) => {
+  res.json(await market.fundamentalsMany(parseSymbols(req.query.symbols, 120)));
+}));
+
+api.get('/market/profile', wrap(async (req, res) => {
+  const [symbol] = parseSymbols(req.query.symbol, 1);
+  if (!symbol) return res.status(400).json({ error: 'symbol' });
+  res.json(await market.profile(symbol));
 }));
 
 api.get('/market/earnings', wrap(async (req, res) => {

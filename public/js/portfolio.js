@@ -1,6 +1,7 @@
 // 포트폴리오: 계좌 · 매매/입출금 기록 · 평가 · 섹터 비중 · 월별 보정 수익률(Modified Dietz)
 import { state, update, updateQuiet, market, esc, uid, today, fmtNum, fmtMoney, fmtPct, cls, isKrx, openModal, confirmModal, toast, valueAt, download, toCsv } from './core.js';
 import { donut, color } from './charts.js';
+import { openStockModal } from './stock.js';
 
 let asOf = null;          // 과거 잔고 조회 날짜 (null = 오늘)
 let recordTab = 'trades';
@@ -150,7 +151,7 @@ export async function render(root) {
         <thead><tr><th>자산</th><th class="num">수량</th><th class="num">평균단가</th><th class="num">${asOf ? '기준일가' : '현재가'}</th><th class="num">평가금액</th><th class="num">평가손익</th><th class="num">수익률</th><th class="num">비중</th></tr></thead>
         <tbody>
           ${rows.map((r) => `<tr>
-            <td><div class="sym">${esc(r.symbol)}</div><div class="sub">${esc(r.name)} · ${esc(r.sector)}</div></td>
+            <td data-open="${esc(r.symbol)}" style="cursor:pointer" title="종목 상세 보기"><div class="sym">${esc(r.symbol)}</div><div class="sub">${esc(r.name)} · ${esc(r.sector)}</div></td>
             <td class="num">${q(r.qty)}</td>
             <td class="num">${hide() ? '••••' : fmtMoney(r.cost / r.qty, r.cur)}</td>
             <td class="num">${r.price != null ? fmtMoney(r.price, r.cur) : '—'}</td>
@@ -188,6 +189,7 @@ export async function render(root) {
   </div>`;
   bindToolbar(root);
   bindRecords(root, accIds);
+  root.querySelectorAll('[data-open]').forEach((td) => { td.onclick = () => openStockModal(td.dataset.open); });
   renderDietz(root.querySelector('#dietz-card'), accIds, seq);
 }
 

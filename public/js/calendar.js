@@ -1,5 +1,5 @@
 // 실적발표 캘린더: 내가 등록한 일정 + Nasdaq 실적 발표 일정 자동 표시
-import { state, update, updateQuiet, market, api, esc, uid, today, openModal, confirmModal, toast, fmtCap } from './core.js';
+import { state, update, updateQuiet, market, api, watchAll, esc, uid, today, openModal, confirmModal, toast, fmtCap } from './core.js';
 import { computeBook } from './portfolio.js';
 
 let ym = today().slice(0, 7);
@@ -8,7 +8,7 @@ const TIME = { BMO: '장 전', AMC: '장 후', '': '' };
 
 function mySymbols() {
   const held = computeBook(state.portfolio.accounts.map((a) => a.id)).positions.map((p) => p.symbol);
-  return new Set([...state.watch.symbols, ...held]);
+  return new Set([...watchAll(), ...held]);
 }
 
 export async function render(root) {

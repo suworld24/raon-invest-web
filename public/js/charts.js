@@ -78,6 +78,60 @@ export function quadrant(x, y) {
   return '약화';
 }
 
+// 선 그래프 (여러 시리즈, 날짜축 공유) + 마우스 위치 값 표시
+// series: [{ name, color, t: [날짜], v: [값] }], normalize: 시작=0% 수익률로 변환
+export function renderLine(el, series, { h = 260, normalize = false, fmt = (v) => v.toFixed(2) } = {}) {
+  const data = series.filter((s) => s.v.length > 1).map((s) => {
+    if (!normalize) return s;
+    const base = s.v.find((x) => x != null);
+    return { ...s, v: s.v.map((x) => (x == null || !base ? null : (x / base - 1) * 100)) };
+  });
+  if (!data.length) { el.innerHTML = '<div class="empty">차트 자료가 없습니다.</div>'; return; }
+  const axis = data[0].t;
+  const W = 720, H = h, L = 52, R = 12, T = 12, B = 26;
+  const all = data.flatMap((s) => s.v.filter((x) => x != null));
+  let min = Math.min(...all), max = Math.max(...all);
+  if (min === max) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.06; min -= pad; max += pad;
+  const n = axis.length;
+  const x = (i) => L + (i / Math.max(1, n - 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - min) / (max - min)) * (H - T - B);
+  const yfmt = normalize ? (v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}%` : fmt;
+  let g = '';
+  for (let k = 0; k <= 4; k++) {
+    const v = min + ((max - min) * k) / 4;
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${esc(yfmt(v))}</text>`;
+  }
+  if (normalize && min < 0 && max > 0) g += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="3 3"/>`;
+  [0, Math.floor(n / 2), n - 1].forEach((i, k) => {
+    g += `<text x="${x(i)}" y="${H - 6}" text-anchor="${['start', 'middle', 'end'][k]}">${esc(axis[i] || '')}</text>`;
+  });
+  const lines = data.map((s) => {
+    let d = '', pen = false;
+    s.v.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true; });
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="1.8"/>`;
+  }).join('');
+  el.innerHTML = `<div style="position:relative">
+    <svg viewBox="0 0 ${W} ${H}" class="line-chart" style="width:100%;height:auto;display:block;font-size:11px;fill:var(--muted)">${g}${lines}
+      <line data-cursor x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--muted)" visibility="hidden"/>
+      <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" data-hit/></svg>
+    <div data-tip class="chart-tip" hidden></div></div>
+    ${data.length > 1 ? `<div class="legend" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px">${data.map((s) => `<div><span class="dot" style="background:${s.color}"></span>${esc(s.name)} <span class="${s.v[s.v.length - 1] > 0 ? 'up' : 'down'}">${normalize ? esc(yfmt(s.v[s.v.length - 1] ?? 0)) : ''}</span></div>`).join('')}</div>` : ''}`;
+  const svg = el.querySelector('svg'), cur = el.querySelector('[data-cursor]'), tip = el.querySelector('[data-tip]');
+  const move = (e) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    const i = Math.max(0, Math.min(n - 1, Math.round(((px - L) / (W - L - R)) * (n - 1))));
+    cur.setAttribute('x1', x(i)); cur.setAttribute('x2', x(i)); cur.setAttribute('visibility', 'visible');
+    tip.hidden = false;
+    tip.innerHTML = `<b>${esc(axis[i])}</b>` + data.map((s) => `<div><span class="dot" style="background:${s.color}"></span> ${data.length > 1 ? esc(s.name) + ' ' : ''}${s.v[i] == null ? '—' : esc(yfmt(s.v[i]))}</div>`).join('');
+    const left = (x(i) / W) * r.width;
+    tip.style.left = `${left > r.width / 2 ? left - tip.offsetWidth - 10 : left + 10}px`;
+  };
+  svg.addEventListener('mousemove', move);
+  svg.addEventListener('mouseleave', () => { cur.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+}
+
 // 간단한 선 그래프 (값 배열)
 export function sparkline(values, { w = 120, h = 32 } = {}) {
   const v = values.filter((x) => x != null);

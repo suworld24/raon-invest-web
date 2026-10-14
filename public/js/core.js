@@ -92,8 +92,15 @@ const DEFAULT_SECTORS = [
 export function defaultState() {
   return {
     portfolio: { accounts: [{ id: 'main', name: '내 포트폴리오', currency: 'KRW' }], trades: [], flows: [], selected: ['main'] },
-    watch: { symbols: ['NVDA', 'GOOGL', 'AAPL', 'MSFT', 'AMZN', 'META', 'TSLA'] },
+    watch: {
+      groups: [
+        { id: 'fav', name: '관심', symbols: [] },
+        { id: 'm7', name: 'M7', symbols: ['NVDA', 'GOOGL', 'AAPL', 'MSFT', 'AMZN', 'META', 'TSLA'] },
+      ],
+      alerts: {}, // sym -> { above, below }
+    },
     sectors: { list: DEFAULT_SECTORS.map(([name, tickers], i) => ({ id: 's' + i, name, tickers })) },
+    industries: { list: [] }, // { id, name, tickers, memo }
     notes: { items: [] },
     calendar: { events: [], showAuto: true },
     screener: { presets: {} },
@@ -125,8 +132,29 @@ export async function loadState() {
     if (err.message === 'login') throw err;
     try { remote = JSON.parse(localStorage.getItem('kk.backup') || '{}'); } catch { remote = {}; }
   }
+  migrateWatch(remote.watch);
   const def = defaultState();
   for (const k of Object.keys(def)) state[k] = remote[k] ? { ...def[k], ...remote[k] } : def[k];
+}
+
+// 예전 형식(관심종목 목록 하나) → 그룹 형식
+function migrateWatch(w) {
+  if (!w || Array.isArray(w.groups)) return;
+  w.groups = [{ id: 'fav', name: '관심', symbols: [...(w.symbols || [])] }];
+  delete w.symbols;
+}
+
+// 모든 관심 그룹의 종목 (중복 제거)
+export function watchAll() {
+  return [...new Set((state.watch.groups || []).flatMap((g) => g.symbols))];
+}
+export function toggleWatch(sym) {
+  const has = watchAll().includes(sym);
+  update('watch', (w) => {
+    if (has) w.groups.forEach((g) => { g.symbols = g.symbols.filter((s) => s !== sym); });
+    else (w.groups[0] ||= { id: 'fav', name: '관심', symbols: [] }).symbols.push(sym);
+  }, has ? '관심종목 해제' : '관심종목 추가');
+  return !has;
 }
 
 async function flush() {
@@ -177,6 +205,7 @@ export function exportBackup() {
 export async function importBackup(file) {
   const json = JSON.parse(await file.text());
   const src = json.state || json;
+  migrateWatch(src.watch);
   const def = defaultState();
   const keys = Object.keys(def).filter((k) => src[k] && typeof src[k] === 'object');
   if (!keys.length) throw new Error('백업 파일 형식이 아닙니다.');
@@ -195,6 +224,8 @@ window.addEventListener('beforeunload', (e) => {
 // ---------- 시세 클라이언트 ----------
 const qCache = new Map(); // sym -> {t, v}
 const hCache = new Map(); // range|sym -> data
+const fCache = new Map(); // sym -> fundamentals
+const pCache = new Map(); // sym -> Promise<profile>
 let screenerP = null;
 let screenerIdx = null;
 
@@ -243,11 +274,31 @@ export const market = {
     for (const s of uniq) out[s] = hCache.get(range + '|' + s);
     return out;
   },
+  // 밸류에이션·재무·컨센서스 요약 (종목당 한 번 요청, 서버에서 12시간 캐시)
+  async fundamentals(symbols, onProgress) {
+    const need = [...new Set(symbols)].filter((s) => !fCache.has(s));
+    let done = symbols.length - need.length;
+    for (let i = 0; i < need.length; i += 25) {
+      const chunk = need.slice(i, i + 25);
+      let d = {};
+      try { d = await api('/api/market/fundamentals?symbols=' + encodeURIComponent(chunk.join(','))); } catch { /* 실패 종목은 빈 값 */ }
+      for (const s of chunk) fCache.set(s, d[s] || null);
+      done += chunk.length;
+      onProgress?.(done, symbols.length);
+    }
+    const out = {};
+    for (const s of symbols) out[s] = fCache.get(s) || null;
+    return out;
+  },
+  async profile(sym) {
+    if (!pCache.has(sym)) pCache.set(sym, api('/api/market/profile?symbol=' + encodeURIComponent(sym)).catch((e) => { pCache.delete(sym); throw e; }));
+    return pCache.get(sym);
+  },
   async fx() {
     const q = await this.quotes(['KRW=X']);
     return q['KRW=X']?.p || 1350;
   },
-  clear() { qCache.clear(); hCache.clear(); screenerP = null; },
+  clear() { qCache.clear(); hCache.clear(); fCache.clear(); pCache.clear(); screenerP = null; },
 };
 
 // 날짜 배열에서 해당 날짜(이하) 마지막 값

@@ -1,0 +1,15 @@
+{
+  "name": "라온's 투자",
+  "short_name": "라온's 투자",
+  "description": "내 투자 기록과 시장 흐름을 한곳에서",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f6fa",
+  "theme_color": "#2f6fed",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

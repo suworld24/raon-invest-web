@@ -1,6 +1,7 @@
 // 기업 스크리너: 미국 상장 종목 필터 · 정렬 · CSV · 조건 저장 · 기업 비교
-import { state, update, updateQuiet, market, esc, fmtNum, fmtPct, fmtCap, cls, download, toCsv, today, openModal, toast } from './core.js';
+import { state, update, updateQuiet, market, watchAll, toggleWatch, esc, fmtNum, fmtPct, fmtCap, cls, download, toCsv, today, openModal, toast } from './core.js';
 import { sparkline } from './charts.js';
+import { openStockModal } from './stock.js';
 
 const PAGE = 100;
 const CAPS = [
@@ -40,7 +41,7 @@ function perfOf(h) {
 function applyFilter(rows) {
   const q = f.q.trim().toLowerCase();
   const cap = CAPS.find((c) => c[0] === f.cap);
-  const watch = new Set(state.watch.symbols);
+  const watch = new Set(watchAll());
   const num = (v) => (v === '' || v == null ? null : +v);
   const pmin = num(f.pmin), pmax = num(f.pmax), cmin = num(f.chgMin), cmax = num(f.chgMax), perfMin = num(f.perfMin);
   return rows.filter((r) => {
@@ -73,8 +74,42 @@ const COLS_PERF = [
   ['s', '티커'], ['n', '기업명'], ['p', '가격 ($)', 1], ['chg', '1일', 1], ['m1', '1개월', 1], ['m3', '3개월', 1], ['m6', '6개월', 1], ['ytd', 'YTD', 1], ['y1', '12개월', 1], ['spark', '최근 3개월'],
 ];
 
+// 밸류에이션 · 재무 · 컨센서스 · 내부자 보기 (현재 페이지 종목만 불러옴)
+const FVIEWS = {
+  valuation: [['pe', 'PER'], ['fpe', '선행 PER'], ['pb', 'PBR'], ['ps', 'PSR'], ['evEbitda', 'EV/EBITDA'], ['peg', 'PEG'], ['div', '배당수익률']],
+  financial: [['rev', '매출 (TTM)'], ['revG', '매출성장'], ['earnG', '이익성장'], ['gm', '매출총이익률'], ['om', '영업이익률'], ['nm', '순이익률'], ['roe', 'ROE'], ['de', '부채비율']],
+  consensus: [['tgt', '목표가 ($)'], ['upside', '괴리율'], ['nAnalyst', '애널리스트'], ['rec', '의견 (1=강력매수)'], ['epsEst', '다음 EPS 예상'], ['nextEarn', '다음 실적일']],
+  insider: [['insBuy', '6개월 매수'], ['insSell', '6개월 매도'], ['insNet', '순매수 금액'], ['insiderPct', '내부자 지분'], ['instPct', '기관 지분']],
+};
+const VIEW_LABEL = { overview: '개요', performance: '수익률', valuation: '밸류에이션', financial: '재무', consensus: '컨센서스', insider: '내부자' };
+const PCT_KEYS = new Set(['div', 'revG', 'earnG', 'gm', 'om', 'nm', 'roe', 'insiderPct', 'instPct']);
+const FKEYS = new Set(Object.values(FVIEWS).flat().map((c) => c[0]));
+const fund = new Map(); // sym -> fundamentals | null
+
+function fval(sym, key) {
+  const f = fund.get(sym);
+  if (!f) return null;
+  if (key === 'upside') return f.tgt && f.price ? (f.tgt / f.price - 1) * 100 : null;
+  if (key === 'insBuy') return f.ins6m?.buyN ?? null;
+  if (key === 'insSell') return f.ins6m?.sellN ?? null;
+  if (key === 'insNet') return f.ins6m ? f.ins6m.buyV - f.ins6m.sellV : null;
+  return f[key] ?? null;
+}
+function fcell(sym, key) {
+  const v = fval(sym, key);
+  if (v == null || v === '') return '<td class="num muted">—</td>';
+  if (PCT_KEYS.has(key)) return `<td class="num ${['revG', 'earnG'].includes(key) ? cls(v) : ''}">${fmtPct(v * 100, 1, ['revG', 'earnG'].includes(key))}</td>`;
+  if (key === 'upside') return `<td class="num ${cls(v)}">${fmtPct(v, 1)}</td>`;
+  if (key === 'rev' || key === 'insNet') return `<td class="num ${key === 'insNet' ? cls(v) : ''}">${v < 0 ? '-' : ''}$${fmtCap(Math.abs(v)) === '—' ? '0' : fmtCap(Math.abs(v))}</td>`;
+  if (key === 'de') return `<td class="num">${v.toFixed(0)}%</td>`;
+  if (key === 'nextEarn') return `<td class="num">${esc(v)}</td>`;
+  if (['nAnalyst', 'insBuy', 'insSell'].includes(key)) return `<td class="num">${v}</td>`;
+  return `<td class="num">${v.toFixed(key === 'tgt' || key === 'epsEst' || key === 'rec' || key === 'peg' ? 2 : 1)}</td>`;
+}
+
 function sortVal(r, key) {
   if (['m1', 'm3', 'm6', 'ytd', 'y1'].includes(key)) return perf.get(r.s)?.[key] ?? null;
+  if (FKEYS.has(key)) return fval(r.s, key);
   return r[key];
 }
 
@@ -107,7 +142,7 @@ export async function render(root) {
     <div class="toolbar" style="margin-top:8px">
       <span class="small muted">가격 $</span><input id="f-pmin" type="number" placeholder="최소" value="${esc(f.pmin)}" style="width:80px">~<input id="f-pmax" type="number" placeholder="최대" value="${esc(f.pmax)}" style="width:80px">
       <span class="small muted">일간 %</span><input id="f-cmin" type="number" placeholder="최소" value="${esc(f.chgMin)}" style="width:80px">~<input id="f-cmax" type="number" placeholder="최대" value="${esc(f.chgMax)}" style="width:80px">
-      <label class="chip ${f.watchOnly ? 'on' : ''}"><input type="checkbox" id="f-watch" ${f.watchOnly ? 'checked' : ''}> ★ 관심종목만 (${state.watch.symbols.length})</label>
+      <label class="chip ${f.watchOnly ? 'on' : ''}"><input type="checkbox" id="f-watch" ${f.watchOnly ? 'checked' : ''}> ★ 관심종목만 (${watchAll().length})</label>
       <span id="perf-filter" ${view === 'performance' ? '' : 'hidden'} class="toolbar"><span class="small muted">상승률</span>
         <select id="f-pp">${[['1mo', '1개월'], ['3mo', '3개월'], ['6mo', '6개월'], ['ytd', 'YTD'], ['1y', '12개월']].map(([v, l]) => `<option value="${v}" ${f.perfPeriod === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <input id="f-pmin2" type="number" placeholder="% 이상" value="${esc(f.perfMin)}" style="width:80px"></span>
@@ -115,14 +150,14 @@ export async function render(root) {
   </div>
   <div class="card">
     <div class="card-head">
-      <div class="seg" id="sc-view"><button data-v="overview" class="${view === 'overview' ? 'on' : ''}">개요</button><button data-v="performance" class="${view === 'performance' ? 'on' : ''}">수익률</button></div>
+      <div class="seg" id="sc-view" style="flex-wrap:wrap">${Object.entries(VIEW_LABEL).map(([v, l]) => `<button data-v="${v}" class="${view === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       <span class="small muted" id="sc-count"></span>
       <span style="flex:1"></span>
       <button class="btn btn-sm" id="sc-compare">나란히 비교 (<span id="cmp-n">${compare.size}</span>/5)</button>
       <button class="btn btn-sm" id="sc-csv">조회 결과 CSV 저장</button>
     </div>
     <div id="sc-table"></div>
-    <p class="small muted">자료: Nasdaq 상장 종목 목록 (갱신 ${esc(new Date(data.updatedAt).toLocaleString('ko-KR'))}) · 수익률 탭은 현재 페이지 종목의 과거 시세를 불러와 계산합니다.</p>
+    <p class="small muted">자료: Nasdaq 상장 종목 목록 (갱신 ${esc(new Date(data.updatedAt).toLocaleString('ko-KR'))}) · 수익률·밸류에이션·재무·컨센서스·내부자 보기는 현재 페이지 종목의 자료를 Yahoo Finance에서 불러오며, 정렬은 불러온 종목 기준입니다. 티커를 누르면 종목 상세가 열립니다.</p>
   </div>`;
 
   const bindInput = (id, key, ev = 'input') => {
@@ -181,8 +216,9 @@ async function drawTable(root, rows) {
   page = Math.min(page, pages - 1);
   const slice = list.slice(page * PAGE, page * PAGE + PAGE);
   root.querySelector('#sc-count').textContent = `${fmtNum(list.length)}개 종목 · 열 제목을 눌러 정렬`;
-  const watch = new Set(state.watch.symbols);
-  const cols = view === 'overview' ? COLS_OVERVIEW : COLS_PERF;
+  const watch = new Set(watchAll());
+  const fv = FVIEWS[view];
+  const cols = view === 'overview' ? COLS_OVERVIEW : view === 'performance' ? COLS_PERF : [['s', '티커'], ['n', '기업명'], ['p', '가격 ($)', 1], ...fv.map(([k, l]) => [k, l, 1])];
   const pc = (v) => `<td class="num ${cls(v)}">${fmtPct(v)}</td>`;
   el.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th></th>${cols.map(([k, l, n]) => `<th class="sortable ${n ? 'num' : ''}" data-k="${k}">${l} ${sort.key === k ? (sort.dir > 0 ? '▲' : '▼') : ''}</th>`).join('')}</tr></thead><tbody>
     ${slice.map((r) => {
@@ -192,6 +228,10 @@ async function drawTable(root, rows) {
         return `<tr>${first}<td class="sym"><button class="star ${watch.has(r.s) ? 'on' : ''}" data-star="${esc(r.s)}" title="관심종목">${watch.has(r.s) ? '★' : '☆'}</button>${esc(r.s)}</td>
           <td><div>${esc(r.n)}</div><div class="sub">${esc(r.ctry)} · ${esc(r.ex)}</div></td><td>${esc(r.sec || '—')}</td><td class="sub">${esc(r.ind || '—')}</td>
           <td class="num">${fmtCap(r.mc)}</td><td class="num">${fmtNum(r.p, 2)}</td><td class="num ${cls(r.chg)}">${fmtPct(r.chg)}</td><td class="num">${fmtCap(r.vol)}</td></tr>`;
+      }
+      if (fv) {
+        return `<tr>${first}<td class="sym"><button class="star ${watch.has(r.s) ? 'on' : ''}" data-star="${esc(r.s)}">${watch.has(r.s) ? '★' : '☆'}</button>${esc(r.s)}</td><td>${esc(r.n)}</td>
+          <td class="num">${fmtNum(r.p, 2)}</td>${fund.has(r.s) ? fv.map(([k]) => fcell(r.s, k)).join('') : `<td colspan="${fv.length}" class="muted small">불러오는 중…</td>`}</tr>`;
       }
       return `<tr>${first}<td class="sym"><button class="star ${watch.has(r.s) ? 'on' : ''}" data-star="${esc(r.s)}">${watch.has(r.s) ? '★' : '☆'}</button>${esc(r.s)}</td><td>${esc(r.n)}</td>
         <td class="num">${fmtNum(r.p, 2)}</td>${pc(r.chg)}${p ? pc(p.m1) + pc(p.m3) + pc(p.m6) + pc(p.ytd) + pc(p.y1) + `<td>${sparkline(p.spark)}</td>` : '<td colspan="6" class="muted small">불러오는 중…</td>'}</tr>`;
@@ -206,8 +246,7 @@ async function drawTable(root, rows) {
   el.querySelectorAll('[data-star]').forEach((b) => {
     b.onclick = () => {
       const s = b.dataset.star;
-      update('watch', (w) => { w.symbols = w.symbols.includes(s) ? w.symbols.filter((x) => x !== s) : [...w.symbols, s]; }, '관심종목 변경');
-      const on = state.watch.symbols.includes(s);
+      const on = toggleWatch(s);
       b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
     };
   });
@@ -217,6 +256,21 @@ async function drawTable(root, rows) {
       root.querySelector('#cmp-n').textContent = compare.size;
     };
   });
+
+  el.querySelectorAll('td.sym').forEach((td) => {
+    td.style.cursor = 'pointer';
+    td.title = '종목 상세 보기';
+    td.addEventListener('click', (e) => { if (!e.target.closest('[data-star]')) openStockModal(td.closest('tr').querySelector('[data-cmp]').dataset.cmp); });
+  });
+
+  if (fv) {
+    const need = slice.map((r) => r.s).filter((s) => !fund.has(s));
+    if (need.length) {
+      const d = await market.fundamentals(need);
+      need.forEach((s) => fund.set(s, d[s]));
+      if (root.isConnected && FVIEWS[view]) drawTable(root, rows);
+    }
+  }
 
   if (view === 'performance') {
     const need = slice.map((r) => r.s).filter((s) => !perf.has(s));
