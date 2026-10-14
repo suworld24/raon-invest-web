@@ -1,0 +1,20 @@
+{
+  "name": "raon-invest-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "개인 투자 기록 · 스크리너 · 섹터 분석 웹앱",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cookie-session": "^2.1.0",
+    "express": "^4.21.1",
+    "pg": "^8.13.1"
+  }
+}

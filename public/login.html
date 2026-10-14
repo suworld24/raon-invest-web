@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>라온's 투자 · 로그인</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="login-body">
+<main class="login-card">
+  <div class="brand-row">
+    <img src="/icon.svg" alt="" width="40" height="40">
+    <div>
+      <h1>라온's 투자</h1>
+      <div class="brand-sub">RAON INVESTMENT</div>
+    </div>
+  </div>
+  <p class="muted">내 투자 기록과 시장 흐름을 한곳에서 확인하세요.</p>
+  <a class="btn btn-primary btn-block" id="google" href="/auth/google">Google로 시작하기</a>
+  <a class="btn btn-block" id="dev" href="/auth/dev" hidden>로컬 테스트로 들어가기</a>
+  <p class="error" id="error" role="alert"></p>
+  <p class="small muted">처음 로그인하면 계정이 만들어집니다.<br>포트폴리오와 개인 기록은 내 계정에 저장됩니다.</p>
+</main>
+<script>
+const e = new URLSearchParams(location.search).get('error');
+if (e) {
+  document.getElementById('error').textContent =
+    e === 'setup' ? 'Google 로그인 설정(GOOGLE_CLIENT_ID)이 아직 없습니다.' :
+    e === 'denied' ? '허용되지 않은 계정입니다.' : '로그인을 완료하지 못했습니다. 다시 시도해주세요.';
+  history.replaceState(null, '', '/login');
+}
+fetch('/auth/config').then(r => r.json()).then(c => {
+  if (c.dev) document.getElementById('dev').hidden = false;
+}).catch(() => {});
+try { if (localStorage.getItem('kk.theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch {}
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>라온's 투자</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<script>try { if (localStorage.getItem('kk.theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch {}</script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand-row">
+      <img src="/icon.svg" alt="" width="34" height="34">
+      <div><h1>라온's 투자</h1><div class="brand-sub">RAON INVESTMENT</div></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="user-chip" id="user-chip"></div>
+      <button class="btn btn-sm" id="logout">로그아웃</button>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="mobile-nav" id="mobile-nav"></div>
+    <header class="topbar">
+      <h1 id="page-title">포트폴리오</h1>
+      <div class="seg" id="theme-seg">
+        <button data-theme="light">라이트</button>
+        <button data-theme="dark">다크</button>
+      </div>
+      <button class="btn icon-btn" id="refresh" title="시세 새로고침" aria-label="시세 새로고침">⟳</button>
+    </header>
+    <section class="content" id="view"></section>
+    <div class="footer-bar">
+      <span class="sp">시세는 Nasdaq·Yahoo 공개 자료 기준이며 실시간 체결가가 아닙니다. 개인 기록은 내 계정에 저장됩니다.</span>
+      <span id="save-status"><span class="save-dot"></span>저장 완료</span>
+      <button class="btn btn-sm" id="undo">최근 변경 되돌리기</button>
+      <button class="btn btn-sm" id="backup">내 기록 백업</button>
+      <button class="btn btn-sm" id="restore">백업 불러오기</button>
+      <input type="file" id="restore-file" accept="application/json" hidden>
+    </div>
+  </div>
+</div>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
