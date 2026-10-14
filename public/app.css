@@ -226,6 +226,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .changes li { padding: 6px 0; border-bottom: 1px solid var(--border); list-style: none; }
 .changes ul { padding: 0; margin: 0; }
 
+/* 표 첫 열(체크) · 티커 고정 */
+.sticky-first th:nth-child(2), .sticky-first td:nth-child(2) { position: sticky; left: 0; z-index: 1; background: var(--panel); }
+.sticky-first th:nth-child(2) { background: var(--panel-2); z-index: 3; }
+.tbl thead th { z-index: 2; }
+.wgroup-head.on { background: var(--primary-weak); border-radius: 8px; }
+.wgroup-head.on .gname { color: var(--primary); }
+.rank-matrix td, .rank-matrix th { padding: 6px 8px; }
+.rank-matrix td:first-child, .rank-matrix th:first-child { position: sticky; left: 0; background: var(--panel-2); z-index: 1; }
+fieldset.card { margin: 0; }
+fieldset.card legend { padding: 0 6px; }
+details > summary { cursor: pointer; }
+
 .mobile-nav { display: none; }
 
 @media (max-width: 960px) {

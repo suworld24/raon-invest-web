@@ -98,6 +98,7 @@ export function defaultState() {
         { id: 'm7', name: 'M7', symbols: ['NVDA', 'GOOGL', 'AAPL', 'MSFT', 'AMZN', 'META', 'TSLA'] },
       ],
       alerts: {}, // sym -> { above, below }
+      bells: [],  // 실적 벨을 켠 종목
     },
     sectors: { list: DEFAULT_SECTORS.map(([name, tickers], i) => ({ id: 's' + i, name, tickers })) },
     industries: { list: [] }, // { id, name, tickers, memo }
@@ -147,6 +148,14 @@ function migrateWatch(w) {
 // 모든 관심 그룹의 종목 (중복 제거)
 export function watchAll() {
   return [...new Set((state.watch.groups || []).flatMap((g) => g.symbols))];
+}
+// 실적 벨: 켠 종목은 관심종목 '벨 표시 종목' 그룹과 실적발표 캘린더에 나타남
+export function toggleBell(sym) {
+  const on = !(state.watch.bells || []).includes(sym);
+  update('watch', (w) => {
+    w.bells = on ? [...(w.bells || []), sym] : (w.bells || []).filter((s) => s !== sym);
+  }, on ? '실적 벨 켜기' : '실적 벨 끄기');
+  return on;
 }
 export function toggleWatch(sym) {
   const has = watchAll().includes(sym);

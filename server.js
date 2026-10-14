@@ -2,8 +2,11 @@ const express = require('express');
 const cookieSession = require('cookie-session');
 const crypto = require('crypto');
 const path = require('path');
+const compression = require('compression');
 const store = require('./lib/store');
 const market = require('./lib/market');
+const sync = require('./lib/sync');
+const rank = require('./lib/rank');
 
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -25,6 +28,7 @@ const SYMBOL_RE = /^[A-Za-z0-9.\-=^]{1,20}$/;
 const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+app.use(compression());
 app.use(cookieSession({
   name: 'kk_sess',
   keys: [SESSION_SECRET],
@@ -33,7 +37,9 @@ app.use(cookieSession({
   secure: IS_PROD,
   httpOnly: true,
 }));
-app.use(express.json({ limit: '5mb' }));
+// 첨부파일 업로드는 자체 한도(12MB)로 따로 읽음
+const jsonBody = express.json({ limit: '5mb' });
+app.use((req, res, next) => (req.method === 'POST' && req.path === '/api/files' ? next() : jsonBody(req, res, next)));
 
 const publicDir = path.join(__dirname, 'public');
 const page = (name) => path.join(publicDir, name);
@@ -169,6 +175,86 @@ api.get('/market/profile', wrap(async (req, res) => {
   res.json(await market.profile(symbol));
 }));
 
+// ---------- 미리 계산한 지표 (기술·컨센서스) ----------
+api.get('/market/metrics', wrap(async (req, res) => {
+  if (req.query.symbols) {
+    const syms = parseSymbols(req.query.symbols, 120);
+    await Promise.all([sync.ensureTech(syms), req.query.fund === '1' ? sync.ensureFund(syms) : null]);
+    return res.json(sync.metrics(syms));
+  }
+  res.set('Cache-Control', 'private, max-age=300');
+  res.json(sync.metrics());
+}));
+
+api.get('/market/sync-status', (req, res) => res.json(sync.status()));
+
+api.get('/market/rankings', wrap(async (req, res) => {
+  const kind = req.query.kind === 'company' ? 'company' : 'industry';
+  const mkt = req.query.market === 'KR' ? 'KR' : 'US';
+  const mode = req.query.mode === 'week' ? 'week' : 'month';
+  let items;
+  if (kind === 'industry') {
+    items = (mkt === 'US' ? rank.US_ETF : rank.KR_ETF).map(([s, n]) => ({ s, n }));
+    await sync.ensureTech(items.map((x) => x.s));
+  } else {
+    const g = (mkt === 'US' ? rank.US_GROUPS : rank.KR_GROUPS)[req.query.group] || (mkt === 'US' ? rank.US_GROUPS.mega : rank.KR_GROUPS.mega);
+    if (mkt === 'US') {
+      const d = await market.screener();
+      items = d.rows.filter((r) => r.mc >= g[0] && r.mc < g[1]).map((r) => ({ s: r.s, n: r.n }));
+    } else {
+      items = (await rank.krCompanies()).filter((r) => r.mc >= g[0] && r.mc < g[1]).map((r) => ({ s: r.s, n: r.n }));
+    }
+  }
+  const tech = sync.allTech();
+  const covered = items.filter((x) => tech[x.s]).length;
+  res.json({ kind, market: mkt, mode, total: items.length, covered, columns: rank.rankMatrix(items, tech, mode), sync: sync.status().running });
+}));
+
+// ---------- 주요 변화 (관심·보유 종목의 전망·일정·실적 변화) ----------
+api.get('/changes', wrap(async (req, res) => {
+  const syms = parseSymbols(req.query.symbols, 400);
+  const days = Math.min(120, Math.max(1, +req.query.days || 30));
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  res.json(await store.getChanges(syms, since));
+}));
+
+// ---------- 참고자료 첨부파일 (이미지·PDF) ----------
+const FILE_LIMIT = 8 * 1024 * 1024, FILE_COUNT = 10;
+const FILE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']);
+api.get('/files', wrap(async (req, res) => {
+  const files = await store.listFiles(req.session.uid);
+  res.json({ files, used: files.reduce((a, f) => a + f.size, 0), limit: FILE_LIMIT, maxCount: FILE_COUNT });
+}));
+api.post('/files', express.json({ limit: '12mb' }), wrap(async (req, res) => {
+  const { title, industry, mime, data } = req.body || {};
+  if (!FILE_TYPES.has(mime)) return res.status(400).json({ error: 'PNG·JPG·GIF·WebP·PDF만 올릴 수 있습니다.' });
+  const buf = Buffer.from(String(data || ''), 'base64');
+  if (!buf.length) return res.status(400).json({ error: '빈 파일입니다.' });
+  const files = await store.listFiles(req.session.uid);
+  if (files.length >= FILE_COUNT) return res.status(400).json({ error: `최대 ${FILE_COUNT}개까지 보관할 수 있습니다.` });
+  const used = files.reduce((a, f) => a + f.size, 0);
+  if (used + buf.length > FILE_LIMIT) return res.status(400).json({ error: '첨부파일 합계 8MB를 넘습니다.' });
+  const id = crypto.randomBytes(8).toString('hex');
+  await store.addFile(req.session.uid, { id, title: String(title || '제목 없음').slice(0, 120), industry: String(industry || '').slice(0, 60), mime, size: buf.length, data: buf });
+  res.json({ ok: true, id });
+}));
+api.get('/files/:id', wrap(async (req, res) => {
+  const f = await store.getFile(req.session.uid, req.params.id);
+  if (!f) return res.status(404).end();
+  res.set('Content-Type', f.mime);
+  res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(f.title)}`);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.send(f.data);
+}));
+api.patch('/files/:id', wrap(async (req, res) => {
+  await store.updateFile(req.session.uid, req.params.id, { title: req.body?.title?.slice(0, 120), industry: req.body?.industry?.slice(0, 60) });
+  res.json({ ok: true });
+}));
+api.delete('/files/:id', wrap(async (req, res) => {
+  await store.deleteFile(req.session.uid, req.params.id);
+  res.json({ ok: true });
+}));
+
 api.get('/market/earnings', wrap(async (req, res) => {
   const ym = String(req.query.month || '');
   if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: 'month' });
@@ -181,6 +267,7 @@ store.init().then(() => {
   app.listen(PORT, () => {
     console.log(`raon-invest-web → ${BASE_URL} (저장소: ${store.kind}${DEV_LOGIN ? ', 개발용 로그인 켜짐' : ''})`);
   });
+  if (process.env.DISABLE_SYNC !== '1') sync.start();
 }).catch((err) => {
   console.error('저장소 초기화 실패', err);
   process.exit(1);
