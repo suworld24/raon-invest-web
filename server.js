@@ -172,7 +172,16 @@ api.get('/market/fundamentals', wrap(async (req, res) => {
 api.get('/market/profile', wrap(async (req, res) => {
   const [symbol] = parseSymbols(req.query.symbol, 1);
   if (!symbol) return res.status(400).json({ error: 'symbol' });
-  res.json(await market.profile(symbol));
+  const p = await market.profile(symbol);
+  // 대체 자료(Nasdaq)에는 분기·연간 컨센서스가 없어 서버가 모아 둔 값으로 채움
+  const f = sync.fundRow(symbol);
+  if (f && !p.est?.y0) {
+    const pick = (x) => (x ? { end: x.end, eps: x.eps, epsYA: x.epsYA, rev: x.rev, revYA: x.revYA } : undefined);
+    p.est = { q0: pick(f.q0), q1: pick(f.q1), y0: pick(f.y0), y1: pick(f.y1) };
+    if (!p.epsHist?.length && f.lastRep) p.epsHist = [{ q: f.lastRep.q, act: f.lastRep.act, est: f.lastRep.est, surprise: f.lastRep.sp }];
+    if (!p.qeps?.length && f.lastRep) p.qeps = [{ p: f.lastRep.q?.slice(2, 7), act: f.lastRep.act, est: f.lastRep.est }];
+  }
+  res.json(p);
 }));
 
 // ---------- 미리 계산한 지표 (기술·컨센서스) ----------
